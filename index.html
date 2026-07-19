@@ -1845,6 +1845,9 @@ var qrcode = function() {
         </div>
         <div class="header-actions">
             <div id="network-indicator" class="network-status status-online">متصل</div>
+            <button class="btn-settings" id="btn-qr-orders" onclick="openQrOrdersModal()" style="position:relative; display:none;">🔔 طلبات QR
+                <span id="qr-orders-badge" style="position:absolute; top:-6px; left:-6px; background:var(--danger-color); color:#fff; border-radius:50%; width:18px; height:18px; font-size:0.62rem; display:flex; align-items:center; justify-content:center; font-weight:bold;">0</span>
+            </button>
             <button class="btn-settings" id="btn-printer-settings" onclick="openPrinterSettingsModal()">🖨️ الطابعة</button>
             <button class="btn-settings" onclick="openSettingsWithPin()">⚙️ الإعدادات</button>
         </div>
@@ -2251,6 +2254,19 @@ var qrcode = function() {
                     <button class="btn-add-item" style="background-color: #2980b9;" onclick="connectPrinterManually()">🔗 إقران / تغيير الطابعة</button>
                     <p id="printer-compat-warning" style="font-size: 0.68rem; color: var(--danger-color); margin-top: 8px; margin-bottom: 0; display:none;">⚠️ متصفح Chrome عندك قديم وما يدعم الطباعة المباشرة. حدّثه من متجر Google Play (يحتاج Chrome 138 أو أحدث) وحاول مرة ثانية.</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="qr-orders-modal" class="modal">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>🔔 طلبات QR الواردة</h2>
+                <span class="close-modal" onclick="closeQrOrdersModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 0.72rem; color: #ccc; margin-top: 0;">راجع كل طلب ووافق عليه ليضاف مباشرة لحساب الطاولة، أو ارفضه إذا كان فيه خطأ أو ما تريد تنفيذه.</p>
+                <div id="qr-orders-list-container" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
         </div>
     </div>
@@ -3233,6 +3249,9 @@ var qrcode = function() {
         }
 
         // الاستماع للطلبات الجديدة الواصلة من صفحات QR الخاصة بالزبائن وتثبيتها مباشرة بجدول الطاولة المطلوبة
+        // قائمة الطلبات الواردة من QR بانتظار موافقة أو رفض الكاشير (ما تنضاف تلقائياً للطاولة)
+        let pendingQrOrdersList = [];
+
         function listenForIncomingOrders() {
             if (!fbDb) return;
             fbDb.ref('incoming_orders').on('child_added', snap => {
@@ -3242,15 +3261,107 @@ var qrcode = function() {
                     fbDb.ref('incoming_orders/' + orderKey).remove();
                     return;
                 }
-                processIncomingQrOrder(order, orderKey);
+                if (pendingQrOrdersList.some(o => o.key === orderKey)) return;
+
+                pendingQrOrdersList.push({ key: orderKey, order: order });
+                playBeepSound();
+                showQrOrderToast(order);
+                renderQrOrdersBadge();
+                renderQrOrdersList();
+            });
+
+            // إذا الزبون سحب الصفحة أو انقطع اتصاله، نزيل الطلب من القائمة المحلية إذا انحذف من فايربيس من مكان ثاني
+            fbDb.ref('incoming_orders').on('child_removed', snap => {
+                const orderKey = snap.key;
+                pendingQrOrdersList = pendingQrOrdersList.filter(o => o.key !== orderKey);
+                renderQrOrdersBadge();
+                renderQrOrdersList();
             });
         }
 
-        function processIncomingQrOrder(order, orderKey) {
+        function showQrOrderToast(order) {
+            const tableNum = order.table;
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;z-index:3000;background:var(--accent-color);color:#000;padding:10px;border-radius:8px;font-weight:bold;font-size:0.85rem;box-shadow:0 2px 10px rgba(0,0,0,0.5);text-align:center;cursor:pointer;';
+            toast.innerText = `🔔 طلب جديد بانتظار الموافقة من طاولة ${tableNum}!${order.discountCodeUsed ? ' 🎁 (مستخدم كود خصم)' : ''} — اضغط هنا للمراجعة`;
+            toast.onclick = () => { toast.remove(); openQrOrdersModal(); };
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 6000);
+        }
+
+        function renderQrOrdersBadge() {
+            const btn = document.getElementById('btn-qr-orders');
+            const badge = document.getElementById('qr-orders-badge');
+            if (!btn || !badge) return;
+            const count = pendingQrOrdersList.length;
+            badge.innerText = count;
+            btn.style.display = count > 0 ? 'flex' : 'none';
+        }
+
+        function openQrOrdersModal() {
+            renderQrOrdersList();
+            document.getElementById('qr-orders-modal').style.display = 'flex';
+        }
+
+        function closeQrOrdersModal() {
+            document.getElementById('qr-orders-modal').style.display = 'none';
+        }
+
+        function renderQrOrdersList() {
+            const container = document.getElementById('qr-orders-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (pendingQrOrdersList.length === 0) {
+                container.innerHTML = '<p style="text-align:center; color:#888; font-size:0.8rem; padding:16px;">لا توجد طلبات بانتظار المراجعة حالياً.</p>';
+                return;
+            }
+
+            pendingQrOrdersList.forEach(entry => {
+                const order = entry.order;
+                const tableNum = order.table;
+                let itemsTotal = (order.items || []).reduce((sum, it) => sum + (it.price * it.qty), 0);
+
+                const card = document.createElement('div');
+                card.style.cssText = 'background:#1a1a1a; border:1px solid var(--border-color); border-radius:8px; padding:10px;';
+
+                let itemsHtml = (order.items || []).map(it =>
+                    `<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:2px 0;">
+                        <span>${it.name} × ${it.qty}</span>
+                        <span>${(it.price * it.qty).toLocaleString()} د.ع</span>
+                    </div>`
+                ).join('');
+
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <strong style="color:var(--accent-color); font-size:0.85rem;">📋 طاولة ${tableNum}</strong>
+                        ${order.discountCodeUsed ? '<span style="font-size:0.68rem; background:#8e44ad; color:#fff; padding:2px 6px; border-radius:4px;">🎁 كود خصم مستخدم</span>' : ''}
+                    </div>
+                    <div style="border-top:1px dashed #444; border-bottom:1px dashed #444; padding:4px 0; margin-bottom:6px;">
+                        ${itemsHtml || '<span style="font-size:0.75rem; color:#888;">لا توجد مواد</span>'}
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.8rem; margin-bottom:8px;">
+                        <span>المجموع:</span>
+                        <span style="color:var(--success-color);">${itemsTotal.toLocaleString()} د.ع${order.discountCodeUsed ? ` (- ${qrDiscountAmount.toLocaleString()} خصم)` : ''}</span>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn-add-item" style="background-color: var(--success-color); flex:1;" onclick="acceptQrOrder('${entry.key}')">✅ قبول وإضافة للطاولة</button>
+                        <button class="btn-add-item" style="background-color: var(--danger-color); color:#fff; flex:1;" onclick="rejectQrOrder('${entry.key}')">❌ رفض</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function acceptQrOrder(orderKey) {
+            const entry = pendingQrOrdersList.find(o => o.key === orderKey);
+            if (!entry) return;
+            const order = entry.order;
             const tableNum = parseInt(order.table);
 
             if (isNaN(tableNum) || tableNum < 1 || tableNum > totalTables) {
-                fbDb.ref('incoming_orders/' + orderKey).remove();
+                alert('رقم طاولة غير صالح بهذا الطلب، تم رفضه تلقائياً.');
+                rejectQrOrder(orderKey);
                 return;
             }
 
@@ -3282,18 +3393,34 @@ var qrcode = function() {
                 if (discField) discField.value = tablesData[tableNum].discount || '';
             }
 
-            playBeepSound();
-            showQrOrderToast(tableNum, order);
-
-            fbDb.ref('incoming_orders/' + orderKey).remove();
+            if (fbDb) fbDb.ref('incoming_orders/' + orderKey).remove();
+            pendingQrOrdersList = pendingQrOrdersList.filter(o => o.key !== orderKey);
+            renderQrOrdersBadge();
+            renderQrOrdersList();
         }
 
-        function showQrOrderToast(tableNum, order) {
-            const toast = document.createElement('div');
-            toast.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;z-index:3000;background:var(--success-color);color:#000;padding:10px;border-radius:8px;font-weight:bold;font-size:0.85rem;box-shadow:0 2px 10px rgba(0,0,0,0.5);text-align:center;';
-            toast.innerText = `🔔 طلب جديد وصل من QR لطاولة ${tableNum}!${order.discountCodeUsed ? ' 🎁 (مستخدم كود خصم)' : ''}`;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 5000);
+        function rejectQrOrder(orderKey) {
+            const entry = pendingQrOrdersList.find(o => o.key === orderKey);
+            if (!entry) return;
+            const order = entry.order;
+
+            if (!confirm(`هل تريد رفض طلب طاولة ${order.table}؟`)) return;
+
+            // إذا الطلب المرفوض استخدم كود خصم، نرجعه فعّال من جديد عشان ما يضيع على الزبون
+            if (order.discountCodeUsed && fbDb) {
+                fbDb.ref('discountCode').transaction(current => {
+                    if (current && current.used) {
+                        current.used = false;
+                        current.usedAt = null;
+                    }
+                    return current;
+                });
+            }
+
+            if (fbDb) fbDb.ref('incoming_orders/' + orderKey).remove();
+            pendingQrOrdersList = pendingQrOrdersList.filter(o => o.key !== orderKey);
+            renderQrOrdersBadge();
+            renderQrOrdersList();
         }
 
         // رسم شبكة رموز QR لكل طاولة برابط منيو مختلف لكل وحدة (باستخدام المكتبة المدمجة محلياً)
@@ -4892,6 +5019,10 @@ var qrcode = function() {
             const printerModal = document.getElementById('printer-settings-modal');
             if (event.target == printerModal) {
                 closePrinterSettingsModal();
+            }
+            const qrOrdersModal = document.getElementById('qr-orders-modal');
+            if (event.target == qrOrdersModal) {
+                closeQrOrdersModal();
             }
         }
 
