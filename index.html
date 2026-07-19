@@ -1444,6 +1444,19 @@ var qrcode = function() {
             animation: red-flash 0.8s infinite; 
         }
 
+        .table-btn.qr-order-alert {
+            background-color: #8e44ad !important;
+            color: white !important;
+            border-color: #f1c40f !important;
+            animation: purple-flash 0.8s infinite;
+        }
+
+        @keyframes purple-flash {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(142, 68, 173, 0.7); }
+            50% { transform: scale(1.06); box-shadow: 0 0 10px 5px rgba(142, 68, 173, 0.4); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(142, 68, 173, 0); }
+        }
+
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.4); }
             70% { box-shadow: 0 0 0 6px rgba(52, 152, 219, 0); }
@@ -1845,8 +1858,8 @@ var qrcode = function() {
         </div>
         <div class="header-actions">
             <div id="network-indicator" class="network-status status-online">متصل</div>
-            <button class="btn-settings" id="btn-qr-orders" onclick="openQrOrdersModal()" style="position:relative; display:none;">🔔 طلبات QR
-                <span id="qr-orders-badge" style="position:absolute; top:-6px; left:-6px; background:var(--danger-color); color:#fff; border-radius:50%; width:18px; height:18px; font-size:0.62rem; display:flex; align-items:center; justify-content:center; font-weight:bold;">0</span>
+            <button class="btn-settings" id="btn-qr-orders" onclick="openQrOrdersModal()" style="position:relative;">🔔 طلبات QR
+                <span id="qr-orders-badge" style="position:absolute; top:-6px; left:-6px; background:var(--danger-color); color:#fff; border-radius:50%; width:18px; height:18px; font-size:0.62rem; display:none; align-items:center; justify-content:center; font-weight:bold;">0</span>
             </button>
             <button class="btn-settings" id="btn-printer-settings" onclick="openPrinterSettingsModal()">🖨️ الطابعة</button>
             <button class="btn-settings" onclick="openSettingsWithPin()">⚙️ الإعدادات</button>
@@ -3268,6 +3281,7 @@ var qrcode = function() {
                 showQrOrderToast(order);
                 renderQrOrdersBadge();
                 renderQrOrdersList();
+                renderTablesBar();
             });
 
             // إذا الزبون سحب الصفحة أو انقطع اتصاله، نزيل الطلب من القائمة المحلية إذا انحذف من فايربيس من مكان ثاني
@@ -3276,6 +3290,7 @@ var qrcode = function() {
                 pendingQrOrdersList = pendingQrOrdersList.filter(o => o.key !== orderKey);
                 renderQrOrdersBadge();
                 renderQrOrdersList();
+                renderTablesBar();
             });
         }
 
@@ -3295,7 +3310,23 @@ var qrcode = function() {
             if (!btn || !badge) return;
             const count = pendingQrOrdersList.length;
             badge.innerText = count;
-            btn.style.display = count > 0 ? 'flex' : 'none';
+            badge.style.display = count > 0 ? 'flex' : 'none';
+            checkQrOrdersAlarm();
+        }
+
+        let qrOrdersAlarmIntervalId = null;
+        function checkQrOrdersAlarm() {
+            const hasPending = pendingQrOrdersList.length > 0;
+            if (hasPending) {
+                if (!qrOrdersAlarmIntervalId) {
+                    qrOrdersAlarmIntervalId = setInterval(playBeepSound, 4000);
+                }
+            } else {
+                if (qrOrdersAlarmIntervalId) {
+                    clearInterval(qrOrdersAlarmIntervalId);
+                    qrOrdersAlarmIntervalId = null;
+                }
+            }
         }
 
         function openQrOrdersModal() {
@@ -3421,6 +3452,7 @@ var qrcode = function() {
             pendingQrOrdersList = pendingQrOrdersList.filter(o => o.key !== orderKey);
             renderQrOrdersBadge();
             renderQrOrdersList();
+            renderTablesBar();
         }
 
         // رسم شبكة رموز QR لكل طاولة برابط منيو مختلف لكل وحدة (باستخدام المكتبة المدمجة محلياً)
@@ -4067,6 +4099,8 @@ var qrcode = function() {
                 
                 if(table.alarmTriggered) {
                     className += ' time-out-alert';
+                } else if (pendingQrOrdersList.some(o => parseInt(o.order.table) === i)) {
+                    className += ' qr-order-alert';
                 }
                 
                 btn.className = className;
@@ -4074,6 +4108,9 @@ var qrcode = function() {
                 btn.onclick = () => {
                     if (!audioCtx) {
                         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    if (pendingQrOrdersList.some(o => parseInt(o.order.table) === i)) {
+                        openQrOrdersModal();
                     }
                     switchTable(i);
                 };
