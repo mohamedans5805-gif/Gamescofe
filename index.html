@@ -3740,13 +3740,27 @@ var qrcode = function() {
 
         // يتأكد إن كل طاولة من 1 إلى totalTables موجودة ببيانات صحيحة، دون ما يمسح بيانات موجودة فعلاً
         function ensureTablesDataStructure() {
+            if (!tablesData || typeof tablesData !== 'object') {
+                tablesData = {};
+            }
             for (let i = 1; i <= totalTables; i++) {
-                if (!tablesData[i]) {
+                if (!tablesData[i] || typeof tablesData[i] !== 'object') {
                     tablesData[i] = getDefaultTableState();
+                    continue;
                 }
-                if (tablesData[i].alarmTriggered === undefined) {
-                    tablesData[i].alarmTriggered = false;
-                }
+                const t = tablesData[i];
+                if (!Array.isArray(t.items)) t.items = [];
+                if (typeof t.psActive !== 'boolean') t.psActive = false;
+                if (typeof t.psElapsedCost !== 'number') t.psElapsedCost = 0;
+                if (typeof t.psTimeString !== 'string') t.psTimeString = '00:00:00';
+                if (typeof t.startClock !== 'string') t.startClock = '';
+                if (typeof t.stopClock !== 'string') t.stopClock = '';
+                if (typeof t.discount !== 'number') t.discount = 0;
+                if (typeof t.psIsLimit !== 'boolean') t.psIsLimit = false;
+                if (typeof t.psLimitMinutes !== 'number') t.psLimitMinutes = 0;
+                if (typeof t.psTimeRemainingString !== 'string') t.psTimeRemainingString = '00:00:00';
+                if (typeof t.alarmTriggered !== 'boolean') t.alarmTriggered = false;
+                if (t.psStartTime === undefined) t.psStartTime = null;
             }
         }
 
@@ -4352,6 +4366,7 @@ var qrcode = function() {
         }
 
         function renderTablesBar() {
+            ensureTablesDataStructure();
             const container = document.getElementById('tables-container');
             container.innerHTML = '';
             
@@ -5340,13 +5355,21 @@ var qrcode = function() {
             }
         }
 
-        applyThemeColor(customThemeColor);
-        checkAndResetAllPeriods();
-        renderDynamicMenu();
-        renderTablesBar();
-        renderOrderList();
-        updateNetworkStatusUI();
-        initFirebaseIfConfigured();
+        function safeRun(fn, label) {
+            try {
+                fn();
+            } catch (e) {
+                console.error('فشل تنفيذ خطوة بدء التشغيل (' + label + '):', e);
+            }
+        }
+
+        safeRun(() => applyThemeColor(customThemeColor), 'applyThemeColor');
+        safeRun(checkAndResetAllPeriods, 'checkAndResetAllPeriods');
+        safeRun(renderDynamicMenu, 'renderDynamicMenu');
+        safeRun(renderTablesBar, 'renderTablesBar');
+        safeRun(renderOrderList, 'renderOrderList');
+        safeRun(updateNetworkStatusUI, 'updateNetworkStatusUI');
+        safeRun(initFirebaseIfConfigured, 'initFirebaseIfConfigured');
 
         // تسجيل الـ Service Worker لتفعيل التثبيت على الشاشة الرئيسية والعمل أوفلاين
         if ('serviceWorker' in navigator) {
