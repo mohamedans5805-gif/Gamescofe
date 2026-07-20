@@ -3785,6 +3785,7 @@ var qrcode = function() {
         }
 
         // يرسل الحالة الحالية الكاملة (الطاولات + المبيعات + المنجزات + القرعة) لـ Firebase عشان باقي الأجهزة تشوفها لحظياً
+        let liveSyncErrorShown = false;
         function pushLiveStateToFirebase() {
             if (!firebaseReady || isApplyingRemoteSync) return;
             fbDb.ref('liveState').set({
@@ -3806,6 +3807,14 @@ var qrcode = function() {
                 adminsList: adminsList,
                 updatedAt: Date.now(),
                 updatedByDevice: deviceSyncId
+            }).then(() => {
+                liveSyncErrorShown = false;
+            }).catch(err => {
+                console.error('فشل رفع الحالة الحية لفايربيس:', err);
+                if (!liveSyncErrorShown) {
+                    liveSyncErrorShown = true;
+                    alert('⚠️ تعذرت مزامنة البيانات مع الأجهزة الثانية!\nسبب الخطأ: ' + err.message + '\n\nالسبب الغالب: صلاحيات قاعدة البيانات (Rules) بفايربيس ما تسمح بالكتابة. راجع تبويب Rules بـ Realtime Database.');
+                }
             });
         }
 
