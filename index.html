@@ -2187,6 +2187,17 @@ var qrcode = function() {
                         <div id="discount-code-status" style="background:#1a1a1a; padding:8px; border-radius:5px; font-size:0.75rem; line-height:1.8;">لا يوجد كود نشط بعد.</div>
                         <button class="btn-add-item" style="background-color: #c0392b; margin-top: 8px;" onclick="manualRegenerateDiscountCode()">🎲 توليد كود جديد الآن يدوياً</button>
                     </div>
+
+                    <div class="settings-section">
+                        <h3>📍 نطاق موقع المحل (لمنع الطلبات من خارج الكافيه)</h3>
+                        <p style="font-size: 0.7rem; color: #ccc; margin-top: 0;">حدد موقع المحل مرة وحدة وأنت واقف بداخله، وأي زبون يسوي سكان لـ QR وهو أبعد من النطاق المحدد ما راح يقدر يفتح المنيو أو يطلب. لازم تسمح للمتصفح بالوصول لموقعك عند الضغط على الزر.</p>
+                        <div class="form-group">
+                            <label>النطاق المسموح (م):</label>
+                            <input type="number" id="cafe-geofence-radius-input" step="50" placeholder="1000">
+                        </div>
+                        <button class="btn-add-item" style="background-color: #16a085;" onclick="captureCafeLocation()">📍 تحديد موقع المحل الحالي وحفظه</button>
+                        <div id="cafe-location-status" style="background:#1a1a1a; padding:8px; border-radius:5px; font-size:0.75rem; line-height:1.8; margin-top:8px;">لم يتم تحديد الموقع بعد — أي زبون بأي مكان يقدر يفتح المنيو حالياً.</div>
+                    </div>
                 </div>
 
                 <div id="tab-qr-tables" class="tab-panel">
@@ -2547,6 +2558,12 @@ var qrcode = function() {
         let fbDb = null;
         let firebaseReady = false;
         let currentDiscountCodeData = null;
+        let cafeLocation = null;
+        try {
+            cafeLocation = JSON.parse(localStorage.getItem('cafe_geofence_location_v9') || 'null');
+        } catch(e) {
+            cafeLocation = null;
+        }
         // ============ نهاية إعدادات Firebase ============
 
         function applyThemeColor(color) {
@@ -3090,6 +3107,7 @@ var qrcode = function() {
                 listenForIncomingOrders();
                 listenForDiscountCodeChanges();
                 syncMenuToFirebase();
+                syncCafeLocationToFirebase();
                 rotateDiscountCodeIfNeeded();
                 setInterval(rotateDiscountCodeIfNeeded, 60 * 1000);
                 updateFirebaseStatusUI();
@@ -3260,6 +3278,56 @@ var qrcode = function() {
                 updatedAt: Date.now()
             });
         }
+
+        // ============ نظام تحديد نطاق موقع المحل الجغرافي (Geofence) ============
+
+        // يحدد موقع المحل الحالي عبر GPS الجهاز ويحفظه محلياً وعلى Firebase مع النطاق المسموح بالمتر
+        function captureCafeLocation() {
+            const radiusInput = document.getElementById('cafe-geofence-radius-input').value;
+            const radius = parseInt(radiusInput) || 1000;
+
+            if (!('geolocation' in navigator)) {
+                alert('متصفحك ما يدعم تحديد الموقع الجغرافي.');
+                return;
+            }
+
+            const statusEl = document.getElementById('cafe-location-status');
+            if (statusEl) statusEl.innerText = '📍 جاري تحديد موقعك، انتظر لحظات...';
+
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                cafeLocation = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    radiusMeters: radius,
+                    updatedAt: Date.now()
+                };
+                localStorage.setItem('cafe_geofence_location_v9', JSON.stringify(cafeLocation));
+                syncCafeLocationToFirebase();
+                renderCafeLocationStatus();
+                alert(`تم تحديد موقع المحل وحفظه بنجاح! ✅\nالنطاق المسموح: ${radius.toLocaleString()} متر حوالين المحل.`);
+            }, function(err) {
+                if (statusEl) statusEl.innerText = 'لم يتم تحديد الموقع بعد — أي زبون بأي مكان يقدر يفتح المنيو حالياً.';
+                alert('تعذر الحصول على موقعك. تأكد إنك سمحت للمتصفح بالوصول لموقعك (Location) وإن خدمة الـ GPS مفعّلة، وحاول مرة ثانية.');
+            }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+        }
+
+        function syncCafeLocationToFirebase() {
+            if (!firebaseReady || !cafeLocation) return;
+            fbDb.ref('cafeLocation').set(cafeLocation);
+        }
+
+        function renderCafeLocationStatus() {
+            const el = document.getElementById('cafe-location-status');
+            const radiusInput = document.getElementById('cafe-geofence-radius-input');
+            if (radiusInput) radiusInput.value = cafeLocation ? cafeLocation.radiusMeters : 1000;
+            if (!el) return;
+            if (!cafeLocation) {
+                el.innerText = 'لم يتم تحديد الموقع بعد — أي زبون بأي مكان يقدر يفتح المنيو حالياً.';
+                return;
+            }
+            el.innerHTML = `📍 الموقع محفوظ (${cafeLocation.lat.toFixed(5)}, ${cafeLocation.lng.toFixed(5)})<br>🎯 النطاق المسموح: ${cafeLocation.radiusMeters.toLocaleString()} متر حوالين المحل.`;
+        }
+        // ============ نهاية نظام تحديد نطاق موقع المحل ============
 
         // الاستماع للطلبات الجديدة الواصلة من صفحات QR الخاصة بالزبائن وتثبيتها مباشرة بجدول الطاولة المطلوبة
         // قائمة الطلبات الواردة من QR بانتظار موافقة أو رفض الكاشير (ما تنضاف تلقائياً للطاولة)
@@ -3774,6 +3842,7 @@ var qrcode = function() {
                 loadFirebaseSettingsUI();
                 renderDiscountCodeSettingsUI();
                 renderTablesQrGrid();
+                renderCafeLocationStatus();
             } else if (pin !== null) {
                 alert("الرمز السري خاطئ!");
             }
