@@ -3104,9 +3104,11 @@ var qrcode = function() {
                     fbDb = firebase.database();
                 }
                 firebaseReady = true;
+                listenForLiveStateChanges();
+                listenForMenuChangesFromOtherDevices();
+                bootstrapMenuIfNeeded();
                 listenForIncomingOrders();
                 listenForDiscountCodeChanges();
-                syncMenuToFirebase();
                 syncCafeLocationToFirebase();
                 rotateDiscountCodeIfNeeded();
                 setInterval(rotateDiscountCodeIfNeeded, 60 * 1000);
@@ -3276,6 +3278,17 @@ var qrcode = function() {
                 psPrice: psPricePerHour,
                 totalTables: totalTables,
                 updatedAt: Date.now()
+            });
+        }
+
+        // ترفع منيو هذا الجهاز فقط إذا ما كان أصلاً موجود منيو على Firebase (أول اتصال بالنظام)
+        // عشان جهاز جديد ما يمسح بيانات منيو صحيحة موجودة من جهاز ثاني سبقه بالمزامنة
+        function bootstrapMenuIfNeeded() {
+            if (!firebaseReady) return;
+            fbDb.ref('menu').once('value').then(snap => {
+                if (!snap.exists()) {
+                    syncMenuToFirebase();
+                }
             });
         }
 
@@ -3698,7 +3711,182 @@ var qrcode = function() {
             localStorage.setItem('cafe_product_stats_v9', JSON.stringify(productSalesStats));
             localStorage.setItem('cafe_admins_list_v9', JSON.stringify(adminsList));
             localStorage.setItem('cafe_invoice_lottery_v9', JSON.stringify(invoiceLottery));
+            pushLiveStateToFirebase();
         }
+
+        // ============ نظام المزامنة الحقيقية بين عدة أجهزة (Firebase كمصدر مشترك) ============
+
+        let isApplyingRemoteSync = false; // لمنع أي تضارب بين القراءة والكتابة بنفس اللحظة
+        let liveStateSyncBound = false;
+        let menuSyncBound = false;
+
+        // يرجع كائن الطاولة الافتراضي (نفس الهيكلية المستخدمة بكل مكان بالكود)
+        function getDefaultTableState() {
+            return {
+                items: [],
+                psActive: false,
+                psStartTime: null,
+                psElapsedCost: 0,
+                psTimeString: '00:00:00',
+                startClock: '',
+                stopClock: '',
+                discount: 0,
+                psIsLimit: false,
+                psLimitMinutes: 0,
+                psTimeRemainingString: '00:00:00',
+                alarmTriggered: false
+            };
+        }
+
+        // يتأكد إن كل طاولة من 1 إلى totalTables موجودة ببيانات صحيحة، دون ما يمسح بيانات موجودة فعلاً
+        function ensureTablesDataStructure() {
+            for (let i = 1; i <= totalTables; i++) {
+                if (!tablesData[i]) {
+                    tablesData[i] = getDefaultTableState();
+                }
+                if (tablesData[i].alarmTriggered === undefined) {
+                    tablesData[i].alarmTriggered = false;
+                }
+            }
+        }
+
+        // يرسل الحالة الحالية الكاملة (الطاولات + المبيعات + المنجزات + القرعة) لـ Firebase عشان باقي الأجهزة تشوفها لحظياً
+        function pushLiveStateToFirebase() {
+            if (!firebaseReady || isApplyingRemoteSync) return;
+            fbDb.ref('liveState').set({
+                tablesData: tablesData,
+                totalTables: totalTables,
+                dailyTotalSales: dailyTotalSales,
+                dailyTotalDiscounts: dailyTotalDiscounts,
+                dailyGameSales: dailyGameSales,
+                weeklyTotalSales: weeklyTotalSales,
+                weeklyTotalDiscounts: weeklyTotalDiscounts,
+                weeklyGameSales: weeklyGameSales,
+                monthlyTotalSales: monthlyTotalSales,
+                monthlyTotalDiscounts: monthlyTotalDiscounts,
+                monthlyGameSales: monthlyGameSales,
+                achievements: achievements,
+                invoiceLottery: invoiceLottery,
+                productSalesStats: productSalesStats,
+                systemPin: systemPin,
+                adminsList: adminsList,
+                updatedAt: Date.now(),
+                updatedByDevice: deviceSyncId
+            });
+        }
+
+        // معرّف عشوائي لهذا الجهاز، يستخدم لتجاهل نسخة التحديث اللي أرسلها هذا الجهاز نفسه لحظة استلامها من فايربيس
+        const deviceSyncId = 'dev_' + Math.random().toString(36).slice(2) + '_' + Date.now();
+
+        // يستقبل أي تحديث حصل من جهاز آخر (طاولات، مبيعات، منجزات...) ويطبقه فوراً على هذا الجهاز
+        function listenForLiveStateChanges() {
+            if (!fbDb || liveStateSyncBound) return;
+            liveStateSyncBound = true;
+
+            fbDb.ref('liveState').on('value', snap => {
+                const data = snap.val();
+
+                if (!data) {
+                    // ما في أي بيانات محفوظة على فايربيس بعد (أول تشغيل)، نرفع بيانات هذا الجهاز كنقطة بداية
+                    pushLiveStateToFirebase();
+                    return;
+                }
+
+                if (data.updatedByDevice === deviceSyncId) {
+                    // هذا التحديث صادر من نفس الجهاز، تجاهله (تفادي حلقة تحديث بلا داعي)
+                    return;
+                }
+
+                isApplyingRemoteSync = true;
+
+                if (data.tablesData) tablesData = data.tablesData;
+                if (typeof data.totalTables === 'number') totalTables = data.totalTables;
+                if (typeof data.dailyTotalSales === 'number') dailyTotalSales = data.dailyTotalSales;
+                if (typeof data.dailyTotalDiscounts === 'number') dailyTotalDiscounts = data.dailyTotalDiscounts;
+                if (typeof data.dailyGameSales === 'number') dailyGameSales = data.dailyGameSales;
+                if (typeof data.weeklyTotalSales === 'number') weeklyTotalSales = data.weeklyTotalSales;
+                if (typeof data.weeklyTotalDiscounts === 'number') weeklyTotalDiscounts = data.weeklyTotalDiscounts;
+                if (typeof data.weeklyGameSales === 'number') weeklyGameSales = data.weeklyGameSales;
+                if (typeof data.monthlyTotalSales === 'number') monthlyTotalSales = data.monthlyTotalSales;
+                if (typeof data.monthlyTotalDiscounts === 'number') monthlyTotalDiscounts = data.monthlyTotalDiscounts;
+                if (typeof data.monthlyGameSales === 'number') monthlyGameSales = data.monthlyGameSales;
+                if (data.achievements) achievements = data.achievements;
+                if (data.invoiceLottery) invoiceLottery = data.invoiceLottery;
+                if (data.productSalesStats) productSalesStats = data.productSalesStats;
+                if (data.systemPin) systemPin = data.systemPin;
+                if (data.adminsList) adminsList = data.adminsList;
+
+                ensureTablesDataStructure();
+
+                // نحفظ محلياً بدون ما نعيد الإرسال لفايربيس (لأننا أصلاً استلمناها منه)
+                localStorage.setItem('cafe_pos_v9', JSON.stringify(tablesData));
+                localStorage.setItem('cafe_total_tables_v9', totalTables);
+                localStorage.setItem('daily_sales_hidden_v9', dailyTotalSales);
+                localStorage.setItem('daily_discounts_hidden_v9', dailyTotalDiscounts);
+                localStorage.setItem('daily_games_sales_v9', dailyGameSales);
+                localStorage.setItem('weekly_sales_hidden_v9', weeklyTotalSales);
+                localStorage.setItem('weekly_discounts_hidden_v9', weeklyTotalDiscounts);
+                localStorage.setItem('weekly_games_sales_v9', weeklyGameSales);
+                localStorage.setItem('monthly_sales_hidden_v9', monthlyTotalSales);
+                localStorage.setItem('monthly_discounts_hidden_v9', monthlyTotalDiscounts);
+                localStorage.setItem('monthly_games_sales_v9', monthlyGameSales);
+                localStorage.setItem('cafe_achievements_v9', JSON.stringify(achievements));
+                localStorage.setItem('cafe_invoice_lottery_v9', JSON.stringify(invoiceLottery));
+                localStorage.setItem('cafe_product_stats_v9', JSON.stringify(productSalesStats));
+                localStorage.setItem('cafe_system_pin_v9', systemPin);
+                localStorage.setItem('cafe_admins_list_v9', JSON.stringify(adminsList));
+
+                refreshAllUIAfterSync();
+
+                isApplyingRemoteSync = false;
+            });
+        }
+
+        // يستقبل أي تحديث بالمنيو (منتجات/سعر PS4) صار من جهاز آخر ويطبقه فوراً على هذا الجهاز
+        function listenForMenuChangesFromOtherDevices() {
+            if (!fbDb || menuSyncBound) return;
+            menuSyncBound = true;
+
+            fbDb.ref('menu').on('value', snap => {
+                const data = snap.val();
+                if (!data || !data.products) return;
+
+                productsList = data.products;
+                if (typeof data.psPrice === 'number') psPricePerHour = data.psPrice;
+
+                localStorage.setItem('cafe_products_list_v9', JSON.stringify(productsList));
+                localStorage.setItem('cafe_ps_price_v9', psPricePerHour);
+
+                renderDynamicMenu();
+                const psPriceInput = document.getElementById('setting-ps-price');
+                if (psPriceInput) psPriceInput.value = psPricePerHour;
+                const settingsItemsListVisible = document.getElementById('settings-items-list-container');
+                if (settingsItemsListVisible) renderSettingsItemsList();
+            });
+        }
+
+        // يعيد رسم كل عناصر الواجهة بعد استلام تحديث من جهاز آخر
+        function refreshAllUIAfterSync() {
+            renderTablesBar();
+            renderOrderList();
+            updatePsTimerUI();
+            checkActiveAlarms();
+            updateAchievementsUI();
+            renderLotteryUI();
+            renderProductStatsList(currentStatsPeriod);
+
+            const discField = document.getElementById('discount-field');
+            if (discField && tablesData[activeTable]) {
+                discField.value = tablesData[activeTable].discount || '';
+            }
+            const totalTablesInput = document.getElementById('setting-total-tables');
+            if (totalTablesInput) totalTablesInput.value = totalTables;
+
+            if (activeTable > totalTables) {
+                switchTable(1);
+            }
+        }
+        // ============ نهاية نظام المزامنة الحقيقية بين الأجهزة ============
 
         function formatTimeClock(timestamp) {
             if(!timestamp) return '';
