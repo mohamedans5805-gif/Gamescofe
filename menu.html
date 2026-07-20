@@ -135,7 +135,61 @@
         document.getElementById('menu-container').innerHTML = '<div class="status-msg">❌ تعذر الاتصال بالمنيو حالياً، يرجى مناداة النادل.</div>';
     }
 
-    if (db) {
+    // حساب المسافة بالمتر بين نقطتين جغرافيتين (معادلة Haversine)
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const toRad = deg => deg * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function showLocationBlockedMessage(msg) {
+        document.getElementById('menu-container').innerHTML = `<div class="status-msg" style="color:var(--danger); font-weight:bold;">${msg}</div>`;
+        document.getElementById('discount-banner').classList.remove('show');
+    }
+
+    // يتحقق من موقع الزبون قبل السماح له بفتح المنيو (إذا صاحب المحل حدد موقعاً ونطاقاً)
+    function checkGeofenceAndInit() {
+        if (!db) return;
+        document.getElementById('menu-container').innerHTML = '<div class="status-msg">📍 جاري التحقق من موقعك...</div>';
+
+        db.ref('cafeLocation').once('value').then(snap => {
+            const cafeLoc = snap.val();
+
+            if (!cafeLoc || !cafeLoc.lat || !cafeLoc.radiusMeters) {
+                // صاحب المحل ما حدد موقع بعد، نسمح بفتح المنيو عادي
+                initMenuAfterLocationCheck();
+                return;
+            }
+
+            if (!('geolocation' in navigator)) {
+                showLocationBlockedMessage('⚠️ متصفحك ما يدعم تحديد الموقع. افتح الرابط من متصفح حديث بموبايلك داخل الكافيه.');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                const dist = distanceMeters(pos.coords.latitude, pos.coords.longitude, cafeLoc.lat, cafeLoc.lng);
+                if (dist <= cafeLoc.radiusMeters) {
+                    initMenuAfterLocationCheck();
+                } else {
+                    showLocationBlockedMessage('🚫 عذراً، المنيو والطلب متاحين فقط للزبائن الموجودين داخل الكافيه. تأكد إنك بالمكان الصحيح وحاول من جديد.');
+                }
+            }, function(err) {
+                showLocationBlockedMessage('⚠️ يرجى تفعيل صلاحية الموقع (Location) لهذا المتصفح من إعدادات الجهاز حتى تقدر تفتح المنيو، وحدّث الصفحة بعدها.');
+            }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+
+        }).catch(() => {
+            // في حال فشل قراءة إعدادات الموقع من الخادم، نسمح بالدخول بدل ما نعطل الزبون بالكامل
+            initMenuAfterLocationCheck();
+        });
+    }
+
+    function initMenuAfterLocationCheck() {
+        if (!db) return;
+
         // تحميل المنيو (مرة عند الفتح + الاستماع لأي تحديث بالأسعار لحظياً)
         db.ref('menu').on('value', snap => {
             const data = snap.val();
@@ -164,6 +218,10 @@
                 }
             }
         });
+    }
+
+    if (db) {
+        checkGeofenceAndInit();
     }
 
     function renderMenu() {
