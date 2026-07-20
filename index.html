@@ -3750,11 +3750,31 @@ var qrcode = function() {
             }
         }
 
+        // يحوّل مفاتيح الطاولات الرقمية (1، 2، 3...) لمفاتيح نصية آمنة (t_1، t_2...) عشان Firebase ما يحولها بالغلط لمصفوفة (Array) ويخرب ترتيبها
+        function tablesDataToSafeKeys(data) {
+            const safe = {};
+            for (const key in data) {
+                safe['t_' + key] = data[key];
+            }
+            return safe;
+        }
+
+        // يرجع مفاتيح الطاولات لصيغتها الرقمية الطبيعية بعد استلامها من Firebase
+        function tablesDataFromSafeKeys(data) {
+            const restored = {};
+            for (const key in data) {
+                if (data[key] == null) continue;
+                const cleanKey = key.indexOf('t_') === 0 ? key.slice(2) : key;
+                restored[cleanKey] = data[key];
+            }
+            return restored;
+        }
+
         // يرسل الحالة الحالية الكاملة (الطاولات + المبيعات + المنجزات + القرعة) لـ Firebase عشان باقي الأجهزة تشوفها لحظياً
         function pushLiveStateToFirebase() {
             if (!firebaseReady || isApplyingRemoteSync) return;
             fbDb.ref('liveState').set({
-                tablesData: tablesData,
+                tablesData: tablesDataToSafeKeys(tablesData),
                 totalTables: totalTables,
                 dailyTotalSales: dailyTotalSales,
                 dailyTotalDiscounts: dailyTotalDiscounts,
@@ -3799,7 +3819,7 @@ var qrcode = function() {
 
                 isApplyingRemoteSync = true;
 
-                if (data.tablesData) tablesData = data.tablesData;
+                if (data.tablesData) tablesData = tablesDataFromSafeKeys(data.tablesData);
                 if (typeof data.totalTables === 'number') totalTables = data.totalTables;
                 if (typeof data.dailyTotalSales === 'number') dailyTotalSales = data.dailyTotalSales;
                 if (typeof data.dailyTotalDiscounts === 'number') dailyTotalDiscounts = data.dailyTotalDiscounts;
