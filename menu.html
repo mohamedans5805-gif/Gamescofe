@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>كيمز كوفي | المنيو</title>
+<meta name="theme-color" content="#f39c12">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+    :root{
+        --bg:#1a1a1a; --card:#2d2d2d; --accent:#f39c12; --border:#404040;
+        --success:#2ecc71; --danger:#e74c3c;
+    }
+    *{box-sizing:border-box;}
+    body{
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        background:var(--bg); color:#fff; margin:0; padding:10px 10px 100px 10px;
+    }
+    .header{ text-align:center; padding:14px 8px; background:linear-gradient(135deg,#222,#2d2d2d); border-radius:10px; border:1px solid var(--border); margin-bottom:12px; }
+    .header h1{ margin:0; font-size:1.2rem; color:var(--accent); }
+    .header p{ margin:4px 0 0 0; font-size:0.75rem; color:#bbb; }
+    .table-badge{ display:inline-block; background:var(--accent); color:#000; font-weight:bold; padding:3px 10px; border-radius:20px; font-size:0.8rem; margin-top:6px; }
+
+    .discount-banner{
+        background:linear-gradient(135deg,#8e44ad,#c0392b); border-radius:10px; padding:12px; margin-bottom:12px;
+        text-align:center; display:none;
+    }
+    .discount-banner.show{ display:block; }
+    .discount-banner h3{ margin:0 0 6px 0; font-size:1rem; }
+    .discount-banner .code{ font-size:1.4rem; font-weight:bold; letter-spacing:3px; background:#000; padding:6px 10px; border-radius:6px; display:inline-block; margin:6px 0; }
+    .discount-banner button{ display:block; width:100%; margin-top:8px; padding:8px; background:#fff; color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:0.85rem; }
+
+    .category-title{ color:var(--accent); font-size:0.95rem; margin:14px 0 8px 0; border-bottom:1px solid var(--border); padding-bottom:4px; }
+    .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
+    .product-card{ background:var(--card); border-radius:8px; padding:10px 6px; text-align:center; cursor:pointer; user-select:none; border:1px solid var(--border); position:relative; }
+    .product-card:active{ background:#3a3a3a; }
+    .prod-name{ display:block; font-size:0.8rem; font-weight:600; margin-bottom:4px; }
+    .prod-price{ display:block; font-size:0.72rem; color:var(--accent); }
+    .qty-badge{ position:absolute; top:-6px; left:-6px; background:var(--success); color:#000; font-weight:bold; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; }
+
+    .cart-bar{
+        position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--border);
+        padding:10px; display:flex; align-items:center; gap:8px; box-shadow:0 -2px 10px rgba(0,0,0,0.5);
+    }
+    .cart-total{ flex:1; font-weight:bold; font-size:0.95rem; }
+    .cart-total span{ color:var(--success); }
+    .btn-cart{ background:var(--accent); color:#000; border:none; padding:10px 16px; border-radius:8px; font-weight:bold; font-size:0.85rem; cursor:pointer; }
+    .btn-cart:disabled{ background:#555; color:#999; }
+
+    .modal{ display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center; padding:14px; }
+    .modal.show{ display:flex; }
+    .modal-box{ background:var(--card); border:1px solid var(--border); border-radius:10px; width:100%; max-width:420px; max-height:85vh; overflow-y:auto; padding:14px; }
+    .cart-line{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #3d3d3d; font-size:0.85rem; }
+    .cart-line .qty-ctrl{ display:flex; align-items:center; gap:6px; }
+    .qty-ctrl button{ background:#444; color:#fff; border:none; width:24px; height:24px; border-radius:5px; font-weight:bold; cursor:pointer; }
+
+    .btn-confirm-send{ width:100%; background:var(--success); color:#000; border:none; padding:12px; border-radius:8px; font-weight:bold; font-size:0.9rem; cursor:pointer; margin-top:10px; }
+    .status-msg{ text-align:center; padding:40px 10px; font-size:0.95rem; color:#bbb; }
+    .center-note{ text-align:center; color:#888; font-size:0.75rem; margin-top:20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>☕ كيمز كوفي | GAME'S COFFEE</h1>
+    <p>المنيو التفاعلي - اطلب مباشرة من مكانك</p>
+    <div class="table-badge" id="table-badge">طاولة ...</div>
+</div>
+
+<div class="discount-banner" id="discount-banner">
+    <h3>🎁 مبروك! عندكم كود خصم خاص بهذه الطاولة</h3>
+    <div class="code" id="discount-code-display">------</div>
+    <p style="font-size:0.72rem; margin:4px 0 0 0;">فعّله الآن ليُطبّق الخصم تلقائياً على طلبك</p>
+    <button onclick="applyDiscountCode()">✅ تفعيل كود الخصم</button>
+</div>
+
+<div id="menu-container">
+    <div class="status-msg">⏳ جاري تحميل المنيو...</div>
+</div>
+
+<div class="cart-bar">
+    <div class="cart-total">السلة: <span id="cart-total-text">0 د.ع</span></div>
+    <button class="btn-cart" id="btn-open-cart" onclick="openCartModal()" disabled>🛒 عرض الطلب</button>
+</div>
+
+<div class="modal" id="cart-modal">
+    <div class="modal-box">
+        <h3 style="margin-top:0; color:var(--accent);">🛒 مراجعة طلبك</h3>
+        <div id="cart-lines-container"></div>
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1rem; margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
+            <span>المجموع:</span>
+            <span id="modal-cart-total" style="color:var(--success);">0 د.ع</span>
+        </div>
+        <p id="modal-discount-note" style="font-size:0.75rem; color:var(--success); display:none;">🎁 تم تفعيل كود خصم على هذا الطلب.</p>
+        <button class="btn-confirm-send" onclick="submitOrder()">📤 إرسال الطلب للكاشير</button>
+        <button style="width:100%; margin-top:6px; background:#444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;" onclick="closeCartModal()">إغلاق</button>
+    </div>
+</div>
+
+<p class="center-note">لأي استفسار، ينادى النادل مباشرة 🙋</p>
+
+<script>
+    // ==========================================================================
+    // ⚠️ عدّل هذا القسم فقط: الصق هنا نفس إعدادات Firebase (firebaseConfig)
+    // اللي حطيتها بتبويب "🔗 QR وFirebase" ببرنامج الكاشير بالضبط
+    // ==========================================================================
+    const firebaseConfig = {
+        apiKey: "AIzaSyDR3pHXiYl94d93QYU6sCh0vlkRfkfXET0",
+        authDomain: "cofeecofe.firebaseapp.com",
+        databaseURL: "https://cofeecofe-default-rtdb.firebaseio.com",
+        projectId: "cofeecofe",
+        storageBucket: "cofeecofe.firebasestorage.app",
+        messagingSenderId: "1075640022251",
+        appId: "1:1075640022251:web:59785f2dd3d1384c6e3aae"
+    };
+    // ==========================================================================
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const tableNum = parseInt(urlParams.get('table')) || 1;
+    document.getElementById('table-badge').innerText = `طاولة ${tableNum}`;
+
+    let db = null;
+    let menuProducts = [];
+    let cart = {}; // { productId: {id,name,price,category,qty} }
+    let discountCodeInfo = null;
+    let discountApplied = false;
+    const QR_DISCOUNT_DEFAULT_LABEL = 'خصم QR';
+
+    try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.database();
+    } catch (e) {
+        console.error('فشل الاتصال بـ Firebase:', e);
+        document.getElementById('menu-container').innerHTML = '<div class="status-msg">❌ تعذر الاتصال بالمنيو حالياً، يرجى مناداة النادل.</div>';
+    }
+
+    // حساب المسافة بالمتر بين نقطتين جغرافيتين (معادلة Haversine)
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const toRad = deg => deg * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function showLocationBlockedMessage(msg) {
+        document.getElementById('menu-container').innerHTML = `<div class="status-msg" style="color:var(--danger); font-weight:bold;">${msg}</div>`;
+        document.getElementById('discount-banner').classList.remove('show');
+    }
+
+    // يتحقق من موقع الزبون قبل السماح له بفتح المنيو (إذا صاحب المحل حدد موقعاً ونطاقاً)
+    function checkGeofenceAndInit() {
+        if (!db) return;
+        document.getElementById('menu-container').innerHTML = '<div class="status-msg">📍 جاري التحقق من موقعك...</div>';
+
+        db.ref('cafeLocation').once('value').then(snap => {
+            const cafeLoc = snap.val();
+
+            if (!cafeLoc || !cafeLoc.lat || !cafeLoc.radiusMeters) {
+                // صاحب المحل ما حدد موقع بعد، نسمح بفتح المنيو عادي
+                initMenuAfterLocationCheck();
+                return;
+            }
+
+            if (!('geolocation' in navigator)) {
+                showLocationBlockedMessage('⚠️ متصفحك ما يدعم تحديد الموقع. افتح الرابط من متصفح حديث بموبايلك داخل الكافيه.');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                const dist = distanceMeters(pos.coords.latitude, pos.coords.longitude, cafeLoc.lat, cafeLoc.lng);
+                if (dist <= cafeLoc.radiusMeters) {
+                    initMenuAfterLocationCheck();
+                } else {
+                    showLocationBlockedMessage('🚫 عذراً، المنيو والطلب متاحين فقط للزبائن الموجودين داخل الكافيه. تأكد إنك بالمكان الصحيح وحاول من جديد.');
+                }
+            }, function(err) {
+                showLocationBlockedMessage('⚠️ يرجى تفعيل صلاحية الموقع (Location) لهذا المتصفح من إعدادات الجهاز حتى تقدر تفتح المنيو، وحدّث الصفحة بعدها.');
+            }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+
+        }).catch(() => {
+            // في حال فشل قراءة إعدادات الموقع من الخادم، نسمح بالدخول بدل ما نعطل الزبون بالكامل
+            initMenuAfterLocationCheck();
+        });
+    }
+
+    function initMenuAfterLocationCheck() {
+        if (!db) return;
+
+        // تحميل المنيو (مرة عند الفتح + الاستماع لأي تحديث بالأسعار لحظياً)
+        db.ref('menu').on('value', snap => {
+            const data = snap.val();
+            if (!data || !data.products) {
+                document.getElementById('menu-container').innerHTML = '<div class="status-msg">لا يوجد منيو متاح حالياً، يرجى مناداة النادل.</div>';
+                return;
+            }
+            menuProducts = data.products;
+            renderMenu();
+        });
+
+        // مراقبة كود الخصم الحالي، وعرضه فقط إذا كان مخصص لهذه الطاولة وغير مستخدم
+        db.ref('discountCode').on('value', snap => {
+            const data = snap.val();
+            const banner = document.getElementById('discount-banner');
+            if (data && !data.used && data.table === tableNum && Date.now() < data.expiresAt) {
+                discountCodeInfo = data;
+                document.getElementById('discount-code-display').innerText = data.code;
+                banner.classList.add('show');
+            } else {
+                discountCodeInfo = null;
+                banner.classList.remove('show');
+                if (discountApplied) {
+                    discountApplied = false;
+                    updateCartUI();
+                }
+            }
+        });
+    }
+
+    if (db) {
+        checkGeofenceAndInit();
+    }
+
+    function renderMenu() {
+        const container = document.getElementById('menu-container');
+        container.innerHTML = '';
+
+        const categories = [
+            { key: 'games', title: '🎮 ألعاب وترفيه' },
+            { key: 'hot', title: '☕ مشروبات حارة' },
+            { key: 'cold', title: '🍹 مشروبات باردة وعصائر' },
+            { key: 'food', title: '🍔 أكلات ونراكيل' }
+        ];
+
+        categories.forEach(cat => {
+            const items = menuProducts.filter(p => p.category === cat.key);
+            if (items.length === 0) return;
+
+            const title = document.createElement('h3');
+            title.className = 'category-title';
+            title.innerText = cat.title;
+            container.appendChild(title);
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+
+            items.forEach(prod => {
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.id = `prod-card-${prod.id}`;
+                card.innerHTML = `
+                    <span class="prod-name">${prod.name}</span>
+                    <span class="prod-price">${prod.price.toLocaleString()} د.ع</span>
+                `;
+                card.onclick = () => addToCart(prod);
+                grid.appendChild(card);
+            });
+
+            container.appendChild(grid);
+        });
+    }
+
+    function addToCart(prod) {
+        if (cart[prod.id]) {
+            cart[prod.id].qty++;
+        } else {
+            cart[prod.id] = { id: prod.id, name: prod.name, price: prod.price, category: prod.category, qty: 1 };
+        }
+        updateProductBadge(prod.id);
+        updateCartUI();
+    }
+
+    function updateProductBadge(id) {
+        const card = document.getElementById(`prod-card-${id}`);
+        if (!card) return;
+        let badge = card.querySelector('.qty-badge');
+        const qty = cart[id] ? cart[id].qty : 0;
+        if (qty <= 0) {
+            if (badge) badge.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'qty-badge';
+            card.appendChild(badge);
+        }
+        badge.innerText = qty;
+    }
+
+    function calcCartTotal() {
+        let total = 0;
+        Object.values(cart).forEach(item => total += item.price * item.qty);
+        return total;
+    }
+
+    function updateCartUI() {
+        const total = calcCartTotal();
+        const hasItems = Object.keys(cart).length > 0;
+        document.getElementById('cart-total-text').innerText = total.toLocaleString() + ' د.ع';
+        document.getElementById('btn-open-cart').disabled = !hasItems;
+    }
+
+    function openCartModal() {
+        const container = document.getElementById('cart-lines-container');
+        container.innerHTML = '';
+
+        Object.values(cart).forEach(item => {
+            const line = document.createElement('div');
+            line.className = 'cart-line';
+            line.innerHTML = `
+                <div>
+                    <strong>${item.name}</strong><br>
+                    <small style="color:#999;">${item.price.toLocaleString()} د.ع</small>
+                </div>
+                <div class="qty-ctrl">
+                    <button onclick="changeCartQty(${item.id}, -1)">-</button>
+                    <span>${item.qty}</span>
+                    <button onclick="changeCartQty(${item.id}, 1)">+</button>
+                </div>
+            `;
+            container.appendChild(line);
+        });
+
+        document.getElementById('modal-cart-total').innerText = calcCartTotal().toLocaleString() + ' د.ع';
+        document.getElementById('modal-discount-note').style.display = discountApplied ? 'block' : 'none';
+        document.getElementById('cart-modal').classList.add('show');
+    }
+
+    function closeCartModal() {
+        document.getElementById('cart-modal').classList.remove('show');
+    }
+
+    function changeCartQty(id, change) {
+        if (!cart[id]) return;
+        cart[id].qty += change;
+        if (cart[id].qty <= 0) delete cart[id];
+        updateProductBadge(id);
+        updateCartUI();
+        openCartModal();
+    }
+
+    function applyDiscountCode() {
+        if (!discountCodeInfo) return;
+        discountApplied = true;
+        alert('🎉 تم تفعيل كود الخصم! سيُطبّق تلقائياً عند إرسال طلبك للكاشير.');
+        document.getElementById('discount-banner').classList.remove('show');
+    }
+
+    function submitOrder() {
+        if (!db) {
+            alert('لا يوجد اتصال حالياً، يرجى مناداة النادل.');
+            return;
+        }
+        const items = Object.values(cart);
+        if (items.length === 0) {
+            alert('السلة فارغة!');
+            return;
+        }
+
+        const orderData = {
+            table: tableNum,
+            items: items,
+            discountCodeUsed: false,
+            timestamp: Date.now()
+        };
+
+        const finalizeAndSend = () => {
+            db.ref('incoming_orders').push(orderData, err => {
+                if (err) {
+                    alert('تعذر إرسال الطلب، تأكد من الاتصال بالإنترنت وحاول مرة ثانية.');
+                    return;
+                }
+                cart = {};
+                discountApplied = false;
+                document.querySelectorAll('.qty-badge').forEach(b => b.remove());
+                updateCartUI();
+                closeCartModal();
+                document.getElementById('menu-container').insertAdjacentHTML('afterbegin',
+                    '<div class="status-msg" style="color:var(--success);">✅ تم إرسال طلبك بنجاح! جاري التحضير...</div>');
+                setTimeout(() => {
+                    const el = document.querySelector('.status-msg');
+                    if (el) el.remove();
+                }, 4000);
+            });
+        };
+
+        // إذا الزبون فعّل كود الخصم، نتحقق ونمنع الاستخدام المزدوج عبر معاملة (transaction) آمنة قبل الإرسال
+        if (discountApplied && discountCodeInfo) {
+            db.ref('discountCode').transaction(current => {
+                if (!current || current.used || current.code !== discountCodeInfo.code || current.table !== tableNum) {
+                    return current; // الكود تغيّر أو انتهى بالفعل، لا تعدله
+                }
+                current.used = true;
+                current.usedAt = Date.now();
+                return current;
+            }, (error, committed, snapshot) => {
+                const finalData = snapshot ? snapshot.val() : null;
+                if (committed && finalData && finalData.used && finalData.usedAt) {
+                    orderData.discountCodeUsed = true;
+                }
+                finalizeAndSend();
+            });
+        } else {
+            finalizeAndSend();
+        }
+    }
+</script>
+</body>
+</html>
